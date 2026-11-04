@@ -1,0 +1,60 @@
+// Shared build conventions for this repo (replaces the monorepo root build.gradle).
+apply plugin: 'java'
+apply plugin: 'maven-publish'
+
+group = 'org.example.teahouse'
+version = findProperty('releaseVersion') ?: '0.1.0-SNAPSHOT'
+
+def ghUser = System.getenv('GITHUB_ACTOR') ?: findProperty('gpr.user')
+def ghKey = System.getenv('GITHUB_TOKEN') ?: findProperty('gpr.key')
+
+repositories {
+    mavenCentral()
+    // Sibling repos publish their jars to GitHub Packages (one Maven registry per repo).
+    (findProperty('upstreamRepos') ?: '').split(',').findAll { it }.each { upstream ->
+        maven {
+            url = uri("https://maven.pkg.github.com/TheCloudPlumbingCo/${upstream}")
+            credentials { username = ghUser; password = ghKey }
+        }
+    }
+}
+
+dependencies {
+    ['annotationProcessor', 'compileOnly', 'implementation', 'runtimeOnly', 'testImplementation'].each { conf ->
+        dependencies.add(conf, platform("org.springframework.boot:spring-boot-dependencies:$springBootVersion"))
+        dependencies.add(conf, platform("org.springframework.cloud:spring-cloud-dependencies:$springCloudVersion"))
+        dependencies.add(conf, platform("org.springframework.data:spring-data-bom:$springDataVersion"))
+    }
+    testImplementation platform('org.junit:junit-bom:6.+')
+
+    annotationProcessor 'org.projectlombok:lombok:1.18.48'
+    compileOnly 'org.projectlombok:lombok:1.18.48'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter'
+    testImplementation 'io.rest-assured:rest-assured:latest.release'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+java {
+    toolchain { languageVersion = JavaLanguageVersion.of(27) }
+}
+
+test {
+    useJUnitPlatform()
+}
+
+// Only the modules listed in gradle.properties (publishModules) are published as libraries.
+if (project.name in (findProperty('publishModules') ?: '').split(',').toList()) {
+    publishing {
+        publications {
+            lib(MavenPublication) { from components.java }
+        }
+        repositories {
+            maven {
+                name = 'GitHubPackages'
+                url = uri("https://maven.pkg.github.com/TheCloudPlumbingCo/${rootProject.name}")
+                credentials { username = ghUser; password = ghKey }
+            }
+        }
+    }
+}
